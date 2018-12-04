@@ -329,6 +329,57 @@ defmodule Timex.Timezone do
     end
   end
 
+
+  def resolve_case(resolve, delta, date, tz) do
+    case resolve do
+      {:error, _} = err -> err
+      ^tz ->
+        {seconds_from_zeroyear, microsecs} = do_shift(date, delta)
+        {{y,m,d},{h,mm,s}} = :calendar.gregorian_seconds_to_datetime(seconds_from_zeroyear)
+        %DateTime{:year => y, :month => m, :day => d,
+          :hour => h, :minute => mm, :second => s,
+          :microsecond => microsecs,
+          :time_zone => tz.full_name,
+          :zone_abbr => tz.abbreviation,
+          :utc_offset => tz.offset_utc,
+          :std_offset => tz.offset_std}
+      %TimezoneInfo{} = new_zone ->
+        delta = diff(date, new_zone)
+        {seconds_from_zeroyear, microsecs} = do_shift(date, delta)
+        {{y,m,d},{h,mm,s}} = :calendar.gregorian_seconds_to_datetime(seconds_from_zeroyear)
+        %DateTime{:year => y, :month => m, :day => d,
+          :hour => h, :minute => mm, :second => s,
+          :microsecond => microsecs,
+          :time_zone => new_zone.full_name,
+          :zone_abbr => new_zone.abbreviation,
+          :utc_offset => new_zone.offset_utc,
+          :std_offset => new_zone.offset_std}
+      %AmbiguousTimezoneInfo{before: before_tz, after: after_tz} ->
+        before_delta = diff(date, before_tz)
+        {before_shifted, before_us} = do_shift(date, before_delta)
+        after_delta = diff(date, after_tz)
+        {after_shifted, after_us} = do_shift(date, after_delta)
+        {{y,m,d},{h,mm,s}} = :calendar.gregorian_seconds_to_datetime(before_shifted)
+        before_dt = %DateTime{:year => y, :month => m, :day => d,
+          :hour => h, :minute => mm, :second => s,
+          :microsecond => before_us,
+          :time_zone => before_tz.full_name,
+          :zone_abbr => before_tz.abbreviation,
+          :utc_offset => before_tz.offset_utc,
+          :std_offset => before_tz.offset_std}
+        {{y,m,d},{h,mm,s}} = :calendar.gregorian_seconds_to_datetime(after_shifted)
+        after_dt = %DateTime{:year => y, :month => m, :day => d,
+          :hour => h, :minute => mm, :second => s,
+          :microsecond => after_us,
+          :time_zone => after_tz.full_name,
+          :zone_abbr => after_tz.abbreviation,
+          :utc_offset => after_tz.offset_utc,
+          :std_offset => after_tz.offset_std}
+        %AmbiguousDateTime{:before => before_dt, :after => after_dt}
+    end
+  end
+
+
   @doc """
   Convert a date to the given timezone (either TimezoneInfo or a timezone name)
   """
@@ -340,57 +391,34 @@ defmodule Timex.Timezone do
     after_date  = convert(date, tz.after)
     %AmbiguousDateTime{:before => before_date, :after => after_date}
   end
+
   def convert(%DateTime{} = date, %TimezoneInfo{full_name: name} = tz) do
     # Calculate the difference between `date`'s timezone, and the target timezone
     delta = diff(date, tz)
     secs = Timex.to_gregorian_seconds(date) + delta
+
     # Offset the provided date's time by the difference
-    case resolve(name, secs, :wall) do
-      {:error, _} = err ->
-        err
-      ^tz ->
-        {seconds_from_zeroyear, microsecs} = do_shift(date, delta)
-        {{y,m,d},{h,mm,s}} = :calendar.gregorian_seconds_to_datetime(seconds_from_zeroyear)
-        %DateTime{:year => y, :month => m, :day => d,
-                  :hour => h, :minute => mm, :second => s,
-                  :microsecond => microsecs,
-                  :time_zone => tz.full_name,
-                  :zone_abbr => tz.abbreviation,
-                  :utc_offset => tz.offset_utc,
-                  :std_offset => tz.offset_std}
-      %TimezoneInfo{} = new_zone ->
-        delta = diff(date, new_zone)
-        {seconds_from_zeroyear, microsecs} = do_shift(date, delta)
-        {{y,m,d},{h,mm,s}} = :calendar.gregorian_seconds_to_datetime(seconds_from_zeroyear)
-        %DateTime{:year => y, :month => m, :day => d,
-                  :hour => h, :minute => mm, :second => s,
-                  :microsecond => microsecs,
-                  :time_zone => new_zone.full_name,
-                  :zone_abbr => new_zone.abbreviation,
-                  :utc_offset => new_zone.offset_utc,
-                  :std_offset => new_zone.offset_std}
-      %AmbiguousTimezoneInfo{before: before_tz, after: after_tz} ->
-        before_delta = diff(date, before_tz)
-        {before_shifted, before_us} = do_shift(date, before_delta)
-        after_delta = diff(date, after_tz)
-        {after_shifted, after_us} = do_shift(date, after_delta)
-        {{y,m,d},{h,mm,s}} = :calendar.gregorian_seconds_to_datetime(before_shifted)
-        before_dt = %DateTime{:year => y, :month => m, :day => d,
-                              :hour => h, :minute => mm, :second => s,
-                              :microsecond => before_us,
-                              :time_zone => before_tz.full_name,
-                              :zone_abbr => before_tz.abbreviation,
-                              :utc_offset => before_tz.offset_utc,
-                              :std_offset => before_tz.offset_std}
-        {{y,m,d},{h,mm,s}} = :calendar.gregorian_seconds_to_datetime(after_shifted)
-        after_dt = %DateTime{:year => y, :month => m, :day => d,
-                            :hour => h, :minute => mm, :second => s,
-                            :microsecond => after_us,
-                            :time_zone => after_tz.full_name,
-                            :zone_abbr => after_tz.abbreviation,
-                            :utc_offset => after_tz.offset_utc,
-                            :std_offset => after_tz.offset_std}
-        %AmbiguousDateTime{:before => before_dt, :after => after_dt}
+    case resolve_case(resolve(name, secs, :wall), delta, date, tz) do
+      {:error, {:could_not_resolve_timezone, _tz, _wall, _utc_or_wall}} = err->
+        # Check if our conversion fell into the skipped DST hour.
+        from_range = case tz.from do
+          {_day, {_ymd, _hms} = dt} -> :calendar.datetime_to_gregorian_seconds(dt)
+          v -> v
+        end
+
+        until_range = case tz.until do
+          {_day, {_ymd, _hms} = dt} -> :calendar.datetime_to_gregorian_seconds(dt)
+          v -> v
+        end
+
+        cond do
+          !is_integer(from_range) && is_integer(until_range) -> err
+          secs < from_range -> resolve_case(resolve(name, until_range, :wall), delta, date, tz)
+          secs >= until_range -> resolve_case(resolve(name, from_range, :wall), delta, date, tz) # probably not needed.
+          true -> err
+        end
+      {:error, _} = err -> err
+      v -> v
     end
   end
   def convert(%DateTime{} = date, tz) do
