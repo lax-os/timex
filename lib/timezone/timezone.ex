@@ -166,6 +166,13 @@ defmodule Timex.Timezone do
   Gets timezone info for a given zone name and date. The date provided
   can either be an Erlang datetime tuple, or a DateTime struct, and if one
   is not provided, then the current date and time is returned.
+
+  @TODO unable to calculate for overlaping DST hour.
+  ```
+  time = DateTime.from_iso8601("2018-03-11T02:13:22.725Z") |> elem(1)
+  tz_info = Timex.Timezone.get("America/New_York", time_1)
+  # >> {:error, {:could_not_resolve_timezone, "America/New_York", 63687953602, :wall}}
+  ```
   """
   @spec get(Types.valid_timezone) ::
     TimezoneInfo.t | AmbiguousTimezoneInfo.t | {:error, term}
@@ -185,6 +192,8 @@ defmodule Timex.Timezone do
         do_get(name, datetime)
     end
   end
+
+
 
   defp do_get(timezone, datetime, utc_or_wall \\ :wall)
 
