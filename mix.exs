@@ -50,7 +50,8 @@ defmodule Timex.Mixfile do
   end
 
   def deps do
-    [{:tzdata, "~> 0.1.8 or ~> 0.5"},
+    [
+     {:tzdata, github: "noizu/tzdata", tag: "opt_exp", override: true},
      {:combine, "~> 0.10"},
      {:gettext, "~> 0.10"},
      {:ex_doc, "~> 0.13", only: [:docs]},
